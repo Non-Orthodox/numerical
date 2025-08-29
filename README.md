@@ -6,9 +6,14 @@ This library uses Eigen 3 for vector and matrix operations. Catch2 is used for u
 
 # Tools
 Current features of this library include:
+
 -Newton polynomial interpolation
+
 -Polynomial class with monomial basis
+
 -Cubic Hermite interpolation
+
 -Runke-Kutta methods
+
 -root finding with Newton's method
 
