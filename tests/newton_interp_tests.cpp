@@ -266,3 +266,4 @@ TEST_CASE("Test Newton polynomial derivative generation")
     REQUIRE( dddd(x) == 0.0 );
   }
 }
+

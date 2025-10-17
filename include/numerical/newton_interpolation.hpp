@@ -260,6 +260,11 @@ public:
   {
     x_ = x;
     NewtonDifferenceTable<Float,PolyOrder+1,RangeDim> table(x,y);
+    this->Update(table);
+  }
+
+  void Update(const NewtonDifferenceTable<Float,PolyOrder+1,RangeDim>& table)
+  {
     for (int i = 0; i <= PolyOrder; i++) {
       coeffs_[i] = table(i,i);
     }
@@ -330,7 +335,7 @@ public:
     else {
       std::array<Float,PolyOrder> x;
       std::array<RVec,PolyOrder> y;
-      Float temp;
+      RVec temp;
       //TODO could change chosen x points
       for (int i = 0; i < PolyOrder; i++) {
         x[i] = x_[i];
