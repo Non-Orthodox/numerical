@@ -84,7 +84,7 @@ public:
     else {
       x_[0] = arg;
       y_[0] = func_->operator()(x_[0]);
-      for (int i = 1; i < PolyOrder; i++) {
+      for (int i = 1; i <= PolyOrder; i++) {
         x_[i] = x_[0] + (static_cast<Scalar>(i) * del_x_);
         y_[i] = func_->operator()(x_[i]);
       }
