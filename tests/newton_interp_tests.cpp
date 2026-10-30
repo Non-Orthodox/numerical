@@ -1,6 +1,11 @@
 #include <random>
 #include <iostream>
 #include <array>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <limits>
+#include <numbers>
 #include <vector>
 
 #define CATCH_CONFIG_MAIN
@@ -8,6 +13,8 @@
 #include <Eigen/Dense>
 
 #include <numerical/newton_interpolation.hpp>
+#include <numerical/special_functions.hpp>
+#include <numerical/tabulate.hpp>
 
 /*
 make sure to test all equivalence classes
@@ -36,6 +43,69 @@ TEMPLATE_TEST_CASE("Difference table with Dim of 1", "", float, double, long dou
     table2.Construct(&x,&y,1);
     REQUIRE( table2(0,0) == static_cast<TestType>(1) );
   }
+}
+
+TEST_CASE("Fixed-size difference table rejects undersized input")
+{
+  NewtonDifferenceTable<double, 2> table;
+  const std::vector<double> x{0.0};
+  const std::vector<double> y{1.0};
+
+  REQUIRE_THROWS_AS(table.Construct(x, y), std::invalid_argument);
+  REQUIRE_THROWS_AS(
+    (NewtonDifferenceTable<double, 2>(x.data(), y.data(), x.size())),
+    std::invalid_argument);
+}
+
+TEST_CASE("Difference tables reject repeated nodes")
+{
+  const std::array<double, 3> x{0.0, 1.0, 1.0};
+  const std::array<double, 3> y{1.0, 2.0, 3.0};
+  NewtonDifferenceTable<double, 3> fixed_table;
+  NewtonDifferenceTable<double, -1> dynamic_table;
+
+  REQUIRE_THROWS_AS(fixed_table.Construct(x, y), std::invalid_argument);
+  REQUIRE_THROWS_AS(dynamic_table.Construct(x, y), std::invalid_argument);
+}
+
+TEST_CASE("Dynamic difference table rejects mismatched input vectors")
+{
+  NewtonDifferenceTable<double, -1> table;
+  const std::vector<double> x{0.0, 1.0};
+  const std::vector<double> y{1.0};
+
+  REQUIRE_THROWS_AS(table.Construct(x, y), std::invalid_argument);
+  REQUIRE_THROWS_AS(
+    (NewtonDifferenceTable<double, -1>(x, y)),
+    std::invalid_argument);
+}
+
+TEST_CASE("Sine integral uses the Taylor expansion through three")
+{
+  REQUIRE(Si(0.0) == Approx(0.0));
+  REQUIRE(Si(1.0) == Approx(0.946083070367183).epsilon(1.0e-14));
+  REQUIRE(Si(3.0) == Approx(1.848652527999468).epsilon(1.0e-14));
+  REQUIRE(Si(-1.0) == Approx(-0.946083070367183).epsilon(1.0e-14));
+  REQUIRE(Si(1.0e-20) == 1.0e-20);
+}
+
+TEST_CASE("Sine integral uses the Chebyshev tail approximation")
+{
+  REQUIRE(Si(4.0) == Approx(1.758203138949053).epsilon(2.0e-15));
+  REQUIRE(Si(10.0) == Approx(1.658347594218874).epsilon(2.0e-15));
+  REQUIRE(Si(100.0) == Approx(1.5622254668890563).epsilon(2.0e-15));
+  REQUIRE(Si(1.0e8) == Approx(1.5707963304287476).epsilon(2.0e-15));
+  REQUIRE(Si(-10.0) == Approx(-Si(10.0)));
+  const double amplitude_boundary = std::sqrt(50.0);
+  REQUIRE(Si(amplitude_boundary) ==
+          Approx(1.46149753433073).epsilon(2.0e-15));
+  REQUIRE(Si(std::nextafter(amplitude_boundary,
+                            std::numeric_limits<double>::infinity())) ==
+          Approx(1.46149753433073).epsilon(2.0e-15));
+  REQUIRE(SiMinusHalfPi(10.0) ==
+          Approx(0.08755126742397734).epsilon(2.0e-15));
+  REQUIRE(SiMinusHalfPi(-std::numeric_limits<double>::infinity()) ==
+          Approx(-std::numbers::pi_v<double>));
 }
 
 template<typename Float, int TableDim, int VecDim>
@@ -267,3 +337,63 @@ TEST_CASE("Test Newton polynomial derivative generation")
   }
 }
 
+TEST_CASE("Tabulated function adaptively samples and interpolates")
+{
+  TabulatedFunction<double> quadratic(
+    [](double x) { return 1.0 + x * x; }, -1.0, 1.0, 1.0e-3);
+
+  REQUIRE(quadratic.PointCount() > 2);
+  for (int i = 0; i <= 1000; ++i) {
+    const double x = -1.0 + 2.0 * i / 1000.0;
+    const double actual = 1.0 + x * x;
+    REQUIRE(std::abs(quadratic(x) - actual) / actual <= 1.0e-3);
+  }
+}
+
+TEST_CASE("Tabulated function preserves linear functions exactly")
+{
+  TabulatedFunction<double> linear(
+    [](double x) { return 3.0 * x - 2.0; },
+    std::pair<double, double>{-2.0, 4.0},
+    1.0e-6);
+
+  REQUIRE(linear.PointCount() == 2);
+  REQUIRE(linear(1.25) == Approx(1.75));
+  REQUIRE_THROWS_AS(linear(4.1), std::out_of_range);
+}
+
+TEST_CASE("Tabulated function saves and loads binary tables")
+{
+  const auto path = std::filesystem::temp_directory_path() /
+    ("navengine_tabulated_" + std::to_string(std::random_device{}()) + ".bin");
+  TabulatedFunction<double> original(
+    [](double x) { return 1.0 + x * x; }, -1.0, 1.0, 1.0e-3);
+
+  original.Save(path);
+  TabulatedFunction<double> loaded(path);
+
+  REQUIRE(loaded.PointCount() == original.PointCount());
+  for (std::size_t i = 0; i < original.PointCount(); ++i) {
+    REQUIRE(loaded.Points()[i].first == original.Points()[i].first);
+    REQUIRE(loaded.Points()[i].second == original.Points()[i].second);
+  }
+  for (int i = 0; i <= 100; ++i) {
+    const double x = -1.0 + 2.0 * i / 100.0;
+    REQUIRE(loaded(x) == original(x));
+  }
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("Tabulated function rejects malformed binary tables")
+{
+  const auto path = std::filesystem::temp_directory_path() /
+    ("navengine_tabulated_bad_" + std::to_string(std::random_device{}()) + ".bin");
+  {
+    std::ofstream file(path, std::ios::binary);
+    file << "not a table";
+  }
+
+  REQUIRE_THROWS_AS(TabulatedFunction<double>(path), std::runtime_error);
+  std::filesystem::remove(path);
+}

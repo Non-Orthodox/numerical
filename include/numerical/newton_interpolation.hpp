@@ -8,8 +8,26 @@
 #include <vector>
 #include <type_traits>
 #include <cassert>
+#include <cstddef>
+#include <stdexcept>
 
 #include <Eigen/Dense>
+
+namespace newton_interpolation_detail
+{
+template<typename Float>
+void ValidateDistinctNodes(const Float* x, std::size_t size)
+{
+  for (std::size_t i = 0; i < size; ++i) {
+    for (std::size_t j = i + 1; j < size; ++j) {
+      if (x[i] == x[j]) {
+        throw std::invalid_argument(
+          "NewtonDifferenceTable nodes must be distinct");
+      }
+    }
+  }
+}
+}
 
 //TODO maybe make a general Hermitian difference table
 
@@ -64,8 +82,15 @@ public:
 
   void Construct(const Float* x, const T* y, const std::size_t size)
   {
-    assert(size >= Dim);
-    // this->Allocate(size);
+    if (size < static_cast<std::size_t>(Dim)) {
+      throw std::invalid_argument(
+        "NewtonDifferenceTable input is smaller than its fixed dimension");
+    }
+    if (x == nullptr || y == nullptr) {
+      throw std::invalid_argument(
+        "NewtonDifferenceTable input pointers cannot be null");
+    }
+    newton_interpolation_detail::ValidateDistinctNodes(x, Dim);
     
     for (int i = 0; i < Dim; i++) {
       table_[i][0] = y[i];
@@ -158,6 +183,11 @@ public:
 
   void Construct(const Float* x, const T* y, const std::size_t size)
   {
+    if (size != 0 && (x == nullptr || y == nullptr)) {
+      throw std::invalid_argument(
+        "NewtonDifferenceTable input pointers cannot be null");
+    }
+    newton_interpolation_detail::ValidateDistinctNodes(x, size);
     this->Allocate(size);
     
     for (int i = 0; i < size; i++) {
@@ -178,8 +208,11 @@ public:
 
   void Construct(const std::vector<Float>& x, const std::vector<T>& y)
   {
-    std::size_t size = (x.size() < y.size()) ? x.size() : y.size();
-    this->Construct(x.data(), y.data(), size);
+    if (x.size() != y.size()) {
+      throw std::invalid_argument(
+        "NewtonDifferenceTable input vectors must have equal sizes");
+    }
+    this->Construct(x.data(), y.data(), x.size());
   }
 
   std::string str() const
